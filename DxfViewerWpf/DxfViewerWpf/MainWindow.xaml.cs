@@ -75,8 +75,8 @@ namespace DxfViewerWpf
                 }
 
                 // Thiết lập canvas size
-                double canvasWidth = 1000;
-                double canvasHeight = 800;
+                double canvasWidth = /*boderView.Width;// */1000;
+                double canvasHeight = /*boderView.Height;//*/ 800;
                 DrawingCanvas.Width = canvasWidth;
                 DrawingCanvas.Height = canvasHeight;
 
@@ -87,10 +87,10 @@ namespace DxfViewerWpf
 
                 // Tính toán offset để center drawing
                 double offsetX = (canvasWidth - dxfWidth * scale) / 2 - minX * scale;
-                double offsetY = (canvasHeight - dxfHeight * scale) / 2 + maxY * scale;
+                double offsetY = (canvasHeight + dxfHeight * scale) / 2 - maxY * scale;
 
                 TransformGroup transformGroup = new TransformGroup();
-                transformGroup.Children.Add(new ScaleTransform(scale, -scale)); // Flip Y axis
+                transformGroup.Children.Add(new ScaleTransform(scale, scale)); // Flip Y axis
                 transformGroup.Children.Add(new TranslateTransform(offsetX, offsetY));
 
                 // Vẽ các entity
@@ -101,7 +101,7 @@ namespace DxfViewerWpf
                     {
                         var color = GetEntityColor(entity, doc);
                         wpfShape.Stroke = new SolidColorBrush(color);
-                        wpfShape.StrokeThickness = 1.0 / scale; // Scale-independent thickness
+                        wpfShape.StrokeThickness = 0.5 / scale; // Scale-independent thickness
                         wpfShape.RenderTransform = transformGroup;
                         DrawingCanvas.Children.Add(wpfShape);
                     }
@@ -184,16 +184,17 @@ namespace DxfViewerWpf
 
                 case DxfEntities.EntityType.Circle:
                     var circle = (DxfEntities.Circle)entity;
-                    return new WpfShapes.Ellipse
+                    var ellipse = new WpfShapes.Ellipse
                     {
                         Width = circle.Radius * 2,
                         Height = circle.Radius * 2,
-                        RenderTransformOrigin = new Point(0.5, 0.5),
-                        RenderTransform = new TranslateTransform(
-                            circle.Center.X - circle.Radius,
-                            circle.Center.Y - circle.Radius
-                        )
                     };
+
+                    // Đặt vị trí góc trên-trái của Ellipse bằng tọa độ DXF gốc.
+                    // KHÔNG lật trục Y ở đây.
+                    Canvas.SetLeft(ellipse, circle.Center.X - circle.Radius);
+                    Canvas.SetTop(ellipse, circle.Center.Y - circle.Radius); // <--- Bỏ dấu âm và phép cộng
+                    return ellipse;
 
                 case DxfEntities.EntityType.Arc:
                     var arc = (DxfEntities.Arc)entity;
@@ -206,6 +207,8 @@ namespace DxfViewerWpf
                     {
                         points.Add(new Point(vertex.Position.X, vertex.Position.Y));
                     }
+
+                    points.Add(points.FirstOrDefault());
                     return new WpfShapes.Polyline { Points = points };
 
                 //case DxfEntities.EntityType.LwPolyline:
@@ -220,6 +223,39 @@ namespace DxfViewerWpf
                 default:
                     return null;
             }
+        }
+
+        private WpfShapes.Path CreateCirclePath(DxfEntities.Circle arc)
+        {
+            double startAngleRad = 0 * Math.PI / 180.0;
+            double endAngleRad = 360 * Math.PI / 180.0;
+
+            Point startPoint = new Point(
+                arc.Center.X + arc.Radius * Math.Cos(startAngleRad),
+                arc.Center.Y + arc.Radius * Math.Sin(startAngleRad)
+            );
+            Point endPoint = new Point(
+                arc.Center.X + arc.Radius * Math.Cos(endAngleRad),
+                arc.Center.Y + arc.Radius * Math.Sin(endAngleRad)
+            );
+
+            double sweepAngle = 360;
+
+            PathFigure pathFigure = new PathFigure { StartPoint = startPoint, IsClosed = true };
+            ArcSegment arcSegment = new ArcSegment
+            {
+                Point = endPoint,
+                Size = new Size(arc.Radius, arc.Radius),
+                IsLargeArc = true,
+                SweepDirection = SweepDirection.Counterclockwise,
+                RotationAngle = 0
+            };
+
+            pathFigure.Segments.Add(arcSegment);
+            PathGeometry pathGeometry = new PathGeometry();
+            pathGeometry.Figures.Add(pathFigure);
+
+            return new WpfShapes.Path { Data = pathGeometry };
         }
 
         private WpfShapes.Path CreateArcPath(DxfEntities.Arc arc)
